@@ -194,6 +194,70 @@ vmemset:
 	ret
 ; -----> endof memset <-----
 
+; <-- [byte RAX] stpcpy([byte RDI] s1, ro [byte RSI] s2) -->
+vstpcpy:
+	vpxor xmm0, xmm0
+	xor ecx, ecx
+.loopv:
+	vmovdqu ymm1, [rsi+rcx]
+	vpcmpeqb ymm2, ymm1, ymm0
+	vpmovmskb eax, ymm2
+	test eax, eax
+	jne .exit
+	vmovdqu [rdi+rcx], ymm1
+	add rcx, 32
+	jmp .loopv
+.loop:
+	inc rcx
+.exit:
+	movzx edx, byte [rsi+rcx]
+	mov [rdi+rcx], dl
+	test edx, edx
+	jne .loop
+	lea rax, [rdi+rcx]
+	ret
+; -----> endof stpcpy <-----
+
+; <-- [byte RAX] stpncpy([byte RDI] s1, ro [byte RSI] s2, RDX n) -->
+vstpncpy:
+	xor ecx, ecx
+	mov r8, rdx
+	and r8, VLPN
+	je .loop
+	vpxor xmm0, xmm0
+.loopv:
+	vmovdqu ymm1, [rsi+rcx]
+	vpcmpeqb ymm2, ymm1, ymm0
+	vpmovmskb eax, ymm2
+	test eax, eax
+	jne .stopv
+	vmovdqu [rdi+rcx], ymm1
+	add rcx, 32
+	cmp rcx, r8
+	jb .loopv
+	jmp .loop
+.stopv:
+	movzx eax, byte [rsi+rcx]
+	mov [rdi+rcx], al
+	inc rcx
+	test eax, eax
+	jne .stopv
+	lea rax, [rdi+rcx-1]
+	ret
+.loop:
+	cmp rcx, rdx
+	je .exit
+	movzx eax, byte [rsi+rcx]
+	mov [rdi+rcx], al
+	inc rcx
+	test eax, eax
+	jne .loop
+	dec rcx
+.exit:
+	lea rax, [rdi+rcx]
+	ret
+; -----> endof stpncpy <-----
+
 ; <-- [byte RAX] strcat([byte RDI] s1, ro [byte RSI] s2) -->
 vstrcat:
 	mov rax, rdi
@@ -368,6 +432,86 @@ vstrncmp:
 	ret
 ; -----> endof strncmp <-----
 
+; <-- [byte RAX] strchr(ro [byte RDI], ESI c) -->
+vstrchr:
+    vpxor xmm0, xmm0
+    vmovd xmm1, esi
+    vpbroadcastb ymm1, xmm1
+    sub rdi, 32
+.loopv:
+    add rdi, 32
+    vmovdqu ymm2, [rdi]
+    vpcmpeqb ymm3, ymm2, ymm0
+    vpmovmskb eax, ymm3
+    test eax, eax
+    jne .loop
+    vpcmpeqb ymm3, ymm2, ymm1
+    vpmovmskb eax, ymm3
+    bsf eax, eax
+    je .loopv
+    add rax, rdi
+    ret
+.loop:
+    movzx eax, byte [rdi]
+    cmp eax, esi
+    je .exit
+    inc rdi
+    test eax, eax
+    jne .loop
+	xor eax, eax
+	ret
+.exit:
+    mov rax, rdi
+    ret
+; -----> endof strchr <-----
+
+; <-- [byte RAX] strrchr(ro [byte RDI] s, ESI c) -->
+vstrrchr:
+	vpxor xmm0, xmm0
+	vmovd xmm1, esi
+	vpbroadcastb ymm1, xmm1
+	mov rcx, -32
+.skipv:
+	add rcx, 32
+	vpcmpeqb ymm2, ymm0, [rdi+rcx]
+	vpmovmskb eax, ymm2
+	bsf eax, eax
+	je .skipv
+	add rcx, rax
+	mov r8, rcx
+	and r8, VLPN
+	je .stop
+	inc rcx
+	mov rdx, rcx
+	sub rdx, r8
+.loopv:
+	sub rcx, 32
+	vpcmpeqb ymm2, ymm1, [rdi+rcx]
+	vpmovmskb eax, ymm2
+	bsr eax, eax
+	jne .stopv
+	cmp rcx, rdx
+	ja .loopv
+	jmp .stop
+.stopv:
+	add rcx, rax
+	lea rax, [rdi+rcx]
+	ret
+.loop:
+	dec rcx
+.stop:
+	movzx eax, byte [rdi+rcx]
+	cmp eax, esi
+	je .exit
+	test rcx, rcx
+	jne .loop
+	xor eax, eax
+	ret
+.exit:
+	lea rax, [rdi+rcx]
+	ret
+; -----> endof strrchr <-----
+
 ; <-- [byte RAX] strcpy([byte RDI] s1, ro [byte RSI] s2) -->
 vstrcpy:
     xor ecx, ecx
@@ -445,6 +589,80 @@ vstrlen:
 	add rax, rcx
 	ret
 ; -----> endof strlen <-----
+
+; <-- RAX strnlen(ro [byte RDI] s, RSI n) -->
+vstrnlen:
+	xor eax, eax
+	mov rcx, rsi
+	and rcx, VLPN
+	je .loop
+	vpxor xmm0, xmm0
+.loopv:
+	vpcmpeqb ymm1, ymm0, [rdi+rax]
+	vpmovmskb edx, ymm1
+	bsf edx, edx
+	jne .stopv
+	add rax, 32
+	cmp rax, rcx
+	jb .loopv
+	jmp .loop
+.stopv:
+	add rax, rdx
+	ret
+.loop:
+	cmp rax, rsi
+	je .exit
+	movzx edx, byte [rdi+rax]
+	inc rax
+	test edx, edx
+	jne .loop
+	dec rax
+.exit:
+	ret
+; -----> endof strnlen <-----
+
+; <-- RAX strlcpy([byte RDI] s1, ro [byte RSI] s2, RDX n) -->
+vstrlcpy:
+	vpxor xmm0, xmm0
+	mov rax, -32
+	xor r8, r8
+.loopv:
+	add rax, 32
+	vmovdqu ymm1, [rsi+rax]
+	vpcmpeqb ymm2, ymm1, ymm0
+	vpmovmskb ecx, ymm2
+	bsf ecx, ecx
+	jne .stopv
+	cmp rax, rdx
+	jae .loopv
+	add r8, rax
+	vmovdqu [rdi+r8], ymm1
+	jmp .loopv
+.stopv:
+	add rax, rcx
+	test rdx, rdx
+	je .exit
+	cmp rax, rdx
+	cmovb r9, rax
+	cmovae r9, rdx
+.loop:
+	cmp r8, r9
+	je .stop
+	movzx ecx, byte [rsi+r8]
+	mov [rdi+r8], cl
+	test ecx, ecx
+	je .exit
+	inc r8
+	jmp .loop
+.stop:
+	lea rcx, [r8-1]
+	cmp rdx, rax
+	cmova rcx, r8
+	xor edx, edx
+	mov [rdi+rcx], dl
+.exit:
+	ret
+; -----> endof strlcpy <-----
 
 ; <-- bzero([byte RDI] s, RSI n) -->
 vbzero:
