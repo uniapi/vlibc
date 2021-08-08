@@ -774,6 +774,40 @@ vstrcspn:
     ret
 ; -----> endof strcspn <-----
 
+; <-- [byte RAX] strstr(ro [byte RDI] s1, ro [byte RSI] s2) -->
+vstrstr:
+	push rbx
+	sub rsp, 0x10
+	xchg rdi, rsi
+	call vstrlen
+	test rax, rax
+	cmove rax, rsi
+	je .exit
+	mov rbx, rax
+	xchg rdi, rsi
+	call vstrlen
+	test rax, rax
+	je .exit
+	mov [rsp], rax
+	jmp .stop
+.loop:
+	mov rdx, rbx
+	call vmemcmp
+	test eax, eax
+	cmove rax, rdi
+	je .exit
+	inc rdi
+	dec qword [rsp]
+.stop:
+	cmp [rsp], rbx
+	jae .loop
+	xor eax, eax
+.exit:
+	add rsp, 0x10
+	pop rbx
+	ret
+; -----> endof strstr <-----
+
 ; <-- bzero([byte RDI] s, RSI n) -->
 vbzero:
 	xor eax, eax
